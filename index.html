@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Hunter: Flow Graph Game</title>
+<style>
+:root{--paper:#f6f8f4;--grid:#d9e2dc;--ink:#14263d;--soft:#5a6b7d;--hi:#ffd23f;--ok:#1f8a5b;--bad:#c4372b;--card:#ffffff}
+@media(prefers-color-scheme:dark){:root{--paper:#101a26;--grid:#1d2c3d;--ink:#e8eef5;--soft:#97a8ba;--card:#172433;--hi:#e8b923;--ok:#46c28a;--bad:#ff6b5e}}
+*{box-sizing:border-box}
+body{margin:0;color:var(--ink);font:16px/1.55 system-ui,sans-serif;background-color:var(--paper);
+background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:28px 28px}
+header,main{max-width:900px;margin:0 auto;padding:0 16px}
+header{padding-top:20px}
+h1{font:700 2rem/1.1 Georgia,serif;margin:0 0 4px}
+h2{font:700 1.3rem Georgia,serif;margin:0 0 6px}
+p{margin:0 0 10px;max-width:70ch}
+.sub{color:var(--soft);margin-bottom:14px}
+nav{display:flex;gap:8px;margin-bottom:16px}
+button{font:inherit;cursor:pointer;color:var(--ink);background:var(--card);border:2px solid var(--ink);border-radius:6px;padding:7px 14px}
+button:hover{background:var(--hi);color:#14263d}
+button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+button.on{background:var(--ink);color:var(--paper)}
+button:disabled{opacity:.4;cursor:default;background:var(--card)}
+.panel{background:var(--card);border:2px solid var(--ink);border-radius:6px;padding:16px;margin-bottom:16px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.cards .panel{margin:0}
+code{background:var(--grid);padding:1px 5px;border-radius:3px}
+.bar{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px}
+.stat b{font:700 1.4rem Georgia,serif}
+.q{font-size:1.1rem;font-weight:600}
+svg{width:100%;height:auto;background:var(--card);border:2px solid var(--ink);border-radius:6px;display:block}
+.edge path.line{fill:none;stroke:var(--ink);stroke-width:2.5}
+.edge path.hit{fill:none;stroke:transparent;stroke-width:22;cursor:pointer}
+.edge.sel path.line{stroke:#d98e04;stroke-width:5}
+.edge.ok path.line{stroke:var(--ok);stroke-width:5}
+.edge.miss path.line{stroke:var(--bad);stroke-width:5;stroke-dasharray:7 5}
+.node{cursor:pointer}
+.node circle{fill:var(--card);stroke:var(--ink);stroke-width:2.5}
+.node text{font:700 16px Georgia,serif;fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.node.entry circle{stroke-width:2.5;fill:var(--grid)}
+.node.sel circle{fill:var(--hi);stroke-width:4}.node.sel text{fill:#14263d}
+.node.ok circle{fill:var(--ok)}.node.ok text{fill:#fff}
+.node.miss circle{fill:var(--bad);stroke-dasharray:5 3}.node.miss text{fill:#fff}
+.tag{font:600 11px system-ui,sans-serif;fill:var(--soft);text-anchor:middle}
+#fb{min-height:3.2em;margin-top:12px;padding:10px 12px;border-left:6px solid var(--grid);background:var(--paper)}
+#fb.good{border-color:var(--ok)}#fb.bad{border-color:var(--bad)}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+@media(prefers-reduced-motion:no-preference){.node circle,.edge path.line{transition:fill .2s,stroke .2s}}
+[hidden]{display:none!important}
+</style></head>
+<body>
+<header>
+<h1>Loop Hunter</h1>
+<p class="sub">Flipped-classroom game on flow graphs: spot entry nodes, back edges, loop headers and loop bodies.</p>
+<nav><button id="tStudy" class="on">Before class: study</button><button id="tPlay">In class: play</button></nav>
+</header>
+<main>
+<section id="study">
+<div class="cards">
+<div class="panel"><h2>Flow graph</h2><p>Nodes are basic blocks. A directed edge <code>A → B</code> means control can pass from A to B. One node is the <b>entry</b> (no incoming path from outside).</p></div>
+<div class="panel"><h2>Dominator</h2><p>Node <code>d</code> <b>dominates</b> <code>n</code> if every path from the entry to <code>n</code> goes through <code>d</code>. Every node dominates itself.</p></div>
+<div class="panel"><h2>Back edge</h2><p>An edge <code>u → v</code> where <b>v dominates u</b>. Quick test: run a DFS from the entry; a back edge points to an ancestor still on the stack <i>and</i> that ancestor must dominate the source.</p></div>
+<div class="panel"><h2>Loop header (entry point)</h2><p>The target <code>v</code> of a back edge. It is the single way into a natural loop, and it dominates every node in the loop.</p></div>
+<div class="panel"><h2>Natural loop</h2><p>For back edge <code>u → v</code>: the loop is <code>v</code> plus every node that can reach <code>u</code> without passing through <code>v</code>.</p></div>
+<div class="panel"><h2>Trap: irreducible graphs</h2><p>A cycle with two entries has no header that dominates the cycle, so it has <b>no back edge</b>, even though a DFS finds a retreating edge.</p></div>
+</div>
+<div class="panel"><h2>Self-check before class</h2>
+<p>1. In a <code>while</code> loop, which block is the header: the condition test or the body?<br>
+2. Can a graph have a cycle but no back edge?<br>
+3. If a loop has two back edges to the same header, is it one loop or two?</p>
+<p class="sub">Answers: the condition test; yes (irreducible); one natural loop (the union), found by combining both back edges.</p>
+<button id="goPlay">Ready, start playing</button></div>
+</section>
+
+<section id="play" hidden>
+<div class="bar">
+<div class="stat">Score <b id="score">0</b></div><div class="stat">Streak <b id="streak">0</b></div>
+<div id="lvls" class="row" style="margin:0"></div>
+</div>
+<div class="panel">
+<h2 id="lname"></h2><p id="ldesc" class="sub"></p>
+<p class="q" id="prompt"></p>
+<svg id="svg" viewBox="0 0 680 300" role="img" aria-label="Flow graph"></svg>
+<div id="fb" aria-live="polite">Click items on the graph to select them, then press Check.</div>
+<div class="row">
+<button id="check">Check</button><button id="hint">Hint (-3)</button><button id="none">There are none</button>
+<button id="reveal" hidden>Show answer</button><button id="next" hidden>Next</button>
+</div></div>
+</section>
+</main>
+<script>
+// ---------- Level data: nodes [id,x,y], edges [from,to,curve?] ----------
+const LEVELS=[
+{name:"Level 1: A simple while loop",desc:"Block 2 tests the condition, 3 is the body, 4 is the exit.",
+ nodes:[[1,70,150],[2,230,150],[3,400,70],[4,560,150]],
+ edges:[[1,2],[2,3],[3,2],[2,4]],
+ qs:[{t:"entry",p:"Click the entry node of the flow graph."},{t:"back",p:"Click every back edge."},{t:"header",p:"Click the loop header."},{t:"body",h:2,p:"Click every node in the loop with header 2."}]},
+{name:"Level 2: A loop with an if inside",desc:"The branch at 2 splits and rejoins at 5.",
+ nodes:[[1,70,150],[2,210,150],[3,360,60],[4,360,240],[5,510,150],[6,640,150]],
+ edges:[[1,2],[2,3],[2,4],[3,5],[4,5],[5,2,-70],[5,6]],
+ qs:[{t:"back",p:"Click every back edge."},{t:"header",p:"Click the loop header."},{t:"body",h:2,p:"Click every node in the loop with header 2."}]},
+{name:"Level 3: Nested loops",desc:"One loop sits inside another. Mind which header owns which body.",
+ nodes:[[1,50,150],[2,170,150],[3,290,150],[4,410,150],[5,530,150],[6,640,150]],
+ edges:[[1,2],[2,3],[3,4],[4,3],[4,5],[5,2,-200],[5,6]],
+ qs:[{t:"back",p:"Click every back edge."},{t:"header",p:"Click every loop header."},{t:"body",h:3,p:"Click every node in the inner loop (header 3)."},{t:"body",h:2,p:"Click every node in the outer loop (header 2)."}]},
+{name:"Level 4: The trap",desc:"There is a cycle between 2 and 3, but look at who dominates whom.",
+ nodes:[[1,340,40],[2,190,150],[3,490,150],[4,340,260]],
+ edges:[[1,2],[1,3],[2,3],[3,2],[2,4],[3,4]],
+ qs:[{t:"back",p:"Click every back edge, or press \"There are none\".",none:true}]}
+];
+const HINTS={entry:"The entry has no incoming edges in these graphs.",back:"Edge u→v is a back edge only if every path from the entry to u passes through v.",header:"The header is the target of a back edge.",body:"Start at the back edge's source and walk backwards, stopping at the header."};
+
+// ---------- Analysis ----------
+function analyze(L){
+ const ids=L.nodes.map(n=>n[0]),entry=ids[0],E=L.edges;
+ const preds=id=>E.filter(e=>e[1]===id).map(e=>e[0]);
+ let dom={};ids.forEach(i=>dom[i]=new Set(i===entry?[i]:ids));
+ for(let ch=true;ch;){ch=false;for(const n of ids){if(n===entry)continue;
+  const ps=preds(n);let s=new Set(ids);
+  for(const p of ps)s=new Set([...s].filter(x=>dom[p].has(x)));
+  s.add(n);if(s.size!==dom[n].size){dom[n]=s;ch=true}}}
+ const back=E.filter(e=>dom[e[0]].has(e[1]));
+ const loop=h=>{const s=new Set([h]);
+  for(const [u,v] of back)if(v===h){const st=[u];while(st.length){const x=st.pop();if(!s.has(x)){s.add(x);st.push(...preds(x))}}}
+  return s};
+ return{entry,back,headers:[...new Set(back.map(e=>e[1]))],loop,dom};
+}
+
+// ---------- Game state ----------
+let li=0,qi=0,score=0,streak=0,sel=new Set(),done=false,hinted=false,tries=0,A;
+const $=id=>document.getElementById(id),NS="http://www.w3.org/2000/svg";
+const ek=e=>e[0]+"-"+e[1];
+const el=(t,a,p)=>{const x=document.createElementNS(NS,t);for(const k in a)x.setAttribute(k,a[k]);p&&p.appendChild(x);return x};
+
+function pathFor(L,e){
+ const P=Object.fromEntries(L.nodes.map(n=>[n[0],n])),a=P[e[0]],b=P[e[1]];
+ const bi=L.edges.some(o=>o[0]===e[1]&&o[1]===e[0]);
+ const off=e[2]!==undefined?e[2]:(bi?28:0);
+ let dx=b[1]-a[1],dy=b[2]-a[2],len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len,nx=-uy,ny=ux;
+ const mx=(a[1]+b[1])/2+nx*off*2,my=(a[2]+b[2])/2+ny*off*2;
+ // shorten at both ends along the direction toward the control point
+ const dirA=Math.hypot(mx-a[1],my-a[2]),dirB=Math.hypot(mx-b[1],my-b[2]),r=22,rb=26;
+ const sx=a[1]+(mx-a[1])/dirA*r,sy=a[2]+(my-a[2])/dirA*r;
+ const ex=b[1]+(mx-b[1])/dirB*rb,ey=b[2]+(my-b[2])/dirB*rb;
+ return `M${sx},${sy} Q${mx},${my} ${ex},${ey}`;
+}
+
+function draw(){
+ const L=LEVELS[li],svg=$("svg");svg.innerHTML="";
+ const defs=el("defs",{},svg),m=el("marker",{id:"ar",viewBox:"0 0 10 10",refX:"8",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},defs);
+ el("path",{d:"M0,0L10,5L0,10z",fill:"context-stroke"},m);
+ L.edges.forEach(e=>{
+  const g=el("g",{class:"edge","data-k":ek(e),tabindex:0,role:"button","aria-label":"Edge "+e[0]+" to "+e[1]},svg),d=pathFor(L,e);
+  el("path",{class:"line",d,"marker-end":"url(#ar)"},g);el("path",{class:"hit",d},g);
+  g.onclick=()=>pick("e",ek(e),g);g.onkeydown=ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();pick("e",ek(e),g)}};
+ });
+ L.nodes.forEach(n=>{
+  const g=el("g",{class:"node"+(n[0]===A.entry?" entry":""),"data-n":n[0],tabindex:0,role:"button","aria-label":"Node "+n[0],transform:`translate(${n[1]},${n[2]})`},svg);
+  el("circle",{r:22},g);el("text",{},g).textContent=n[0];
+  if(n[0]===A.entry)el("text",{class:"tag",y:-32},g).textContent="start";
+  g.onclick=()=>pick("n",String(n[0]),g);g.onkeydown=ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();pick("n",String(n[0]),g)}};
+ });
+}
+
+function load(){
+ const L=LEVELS[li],q=L.qs[qi];A=analyze(L);sel=new Set();done=false;hinted=false;tries=0;
+ $("lname").textContent=L.name;$("ldesc").textContent=L.desc+"  (Question "+(qi+1)+" of "+L.qs.length+")";
+ $("prompt").textContent=q.p;draw();
+ fb("Click items on the graph to select them, then press Check.","");
+ $("check").disabled=false;$("hint").disabled=false;$("none").hidden=!q.none;
+ $("reveal").hidden=true;$("next").hidden=true;
+ [...$("lvls").children].forEach((b,i)=>b.classList.toggle("on",i===li));
+}
+function fb(t,c){const f=$("fb");f.textContent=t;f.className=c}
+function kind(){return LEVELS[li].qs[qi].t==="back"?"e":"n"}
+function pick(type,key,g){
+ if(done||type!==kind())return;
+ if(sel.has(key)){sel.delete(key);g.classList.remove("sel")}else{sel.add(key);g.classList.add("sel")}
+ const t=LEVELS[li].qs[qi].t;
+ if((t==="entry")&&sel.size>1){sel.clear();document.querySelectorAll(".sel").forEach(x=>x.classList.remove("sel"));sel.add(key);g.classList.add("sel")}
+}
+function answer(){
+ const q=LEVELS[li].qs[qi];
+ if(q.t==="entry")return new Set([String(A.entry)]);
+ if(q.t==="back")return new Set(A.back.map(ek));
+ if(q.t==="header")return new Set(A.headers.map(String));
+ return new Set([...A.loop(q.h)].map(String));
+}
+function explain(){
+ const q=LEVELS[li].qs[qi];
+ if(q.t==="entry")return "Node "+A.entry+" is the entry: every path starts there.";
+ if(q.t==="back")return A.back.length?"Back edges: "+A.back.map(e=>e[0]+"→"+e[1]+" ("+e[1]+" dominates "+e[0]+")").join(", ")+".":"No back edges: in the 2↔3 cycle neither node dominates the other, because 1 reaches both directly. The cycle has two entries, so the graph is irreducible.";
+ if(q.t==="header")return "Headers are targets of back edges: "+A.headers.join(", ")+".";
+ return "Loop with header "+q.h+": {"+[...A.loop(q.h)].sort().join(", ")+"}. Walk backwards from each back-edge source, stopping at the header.";
+}
+function mark(ans){
+ const k=kind();
+ document.querySelectorAll(k==="e"?".edge":".node").forEach(g=>{
+  const key=k==="e"?g.dataset.k:g.dataset.n,a=ans.has(key),s=sel.has(key);
+  g.classList.remove("sel");
+  if(a&&s)g.classList.add("ok");else if(a)g.classList.add("miss");else if(s&&!a)g.classList.add("miss");
+ });
+}
+function finish(win){
+ done=true;$("check").disabled=true;$("hint").disabled=true;$("none").hidden=true;$("reveal").hidden=true;$("next").hidden=false;
+ const last=li===LEVELS.length-1&&qi===LEVELS[li].qs.length-1;
+ $("next").textContent=last?"Play again":"Next";
+}
+function check(){
+ if(done)return;
+ const ans=answer(),ok=ans.size===sel.size&&[...ans].every(x=>sel.has(x));
+ if(ok){
+  const pts=Math.max(2,10-3*tries-(hinted?3:0));score+=pts;streak++;
+  mark(ans);fb("Correct! +"+pts+" points. "+explain(),"good");finish(true);
+ }else{
+  tries++;streak=0;
+  const extra=[...sel].filter(x=>!ans.has(x)).length,miss=[...ans].filter(x=>!sel.has(x)).length;
+  fb("Not yet: "+(extra?extra+" selected item(s) don't belong. ":"")+(miss?miss+" item(s) still missing. ":"")+"Adjust and check again, or reveal the answer.","bad");
+  $("reveal").hidden=false;
+ }
+ $("score").textContent=score;$("streak").textContent=streak;
+}
+$("check").onclick=check;
+$("none").onclick=()=>{sel=new Set();document.querySelectorAll(".sel").forEach(x=>x.classList.remove("sel"));check()};
+$("hint").onclick=()=>{hinted=true;fb("Hint: "+HINTS[LEVELS[li].qs[qi].t],"")};
+$("reveal").onclick=()=>{mark(answer());fb("Answer: "+explain(),"bad");finish(false)};
+$("next").onclick=()=>{
+ const L=LEVELS[li];
+ if(qi<L.qs.length-1)qi++;else if(li<LEVELS.length-1){li++;qi=0}else{li=0;qi=0;score=0;streak=0;$("score").textContent=0;$("streak").textContent=0}
+ load();
+};
+LEVELS.forEach((l,i)=>{const b=document.createElement("button");b.textContent="L"+(i+1);b.title=l.name;b.onclick=()=>{li=i;qi=0;load()};$("lvls").appendChild(b)});
+function tab(p){$("study").hidden=p;$("play").hidden=!p;$("tStudy").classList.toggle("on",!p);$("tPlay").classList.toggle("on",p);if(p&&!$("svg").childNodes.length)load()}
+$("tStudy").onclick=()=>tab(false);$("tPlay").onclick=()=>tab(true);$("goPlay").onclick=()=>tab(true);
+</script></body></html>
